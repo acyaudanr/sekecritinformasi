@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spreadsheet Data Viewer Pro</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- SheetJS Library -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    /* Scrollbar minimalis utama */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    
+    .no-select {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* PENGATURAN TABEL 100% LAYAR PAS */
+    .locked-table {
+      table-layout: auto !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      border-collapse: collapse !important;
+    }
+
+    /* Header Kolom Standar: Dipenggal per kata dengan <br> */
+    .col-fixed-header {
+      white-space: normal !important;
+      word-break: keep-all !important;
+      overflow-wrap: normal !important;
+      box-sizing: border-box !important;
+      line-height: 1.25 !important;
+    }
+
+    /* Isi Sel Standar */
+    .col-fixed-body {
+      white-space: normal !important;
+      word-break: break-word !important;
+      box-sizing: border-box !important;
+    }
+
+    /* Khusus Kolom Fleksibel Utama (Uraian Informasi Arsip):
+       Mengambil sisa ruang paling luas */
+    .col-flexible-main {
+      white-space: normal !important;
+      word-break: break-word !important;
+      overflow-wrap: break-word !important;
+      box-sizing: border-box !important;
+    }
+
+    /* Highlight Warna Kata yang Dicari */
+    .search-highlight {
+      background-color: #fef08a !important;
+      color: #854d0e !important;
+      font-weight: 600;
+      padding: 1px 2px;
+      border-radius: 2px;
+    }
+
+    /* CSS Khusus Cetak / Print PDF */
+    @media print {
+      body {
+        background: white !important;
+        color: black !important;
+        overflow: visible !important;
+      }
+      header, #login-screen, #modal-password, #loading-overlay, .no-print {
+        display: none !important;
+      }
+      #main-dashboard, main, #viewport-container, #table-scroll-wrapper {
+        position: static !important;
+        overflow: visible !important;
+        height: auto !important;
+        width: 100% !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        page-break-inside: auto;
+      }
+      tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+      }
+      th, td {
+        border: 1px solid #000 !important;
+        padding: 4px 6px !important;
+        font-size: 8pt !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 font-sans h-screen w-screen overflow-hidden flex flex-col">
+
+  <!-- ==================== 0. OVERLAY LOADING & PROGRESS BAR ==================== -->
+  <div id="loading-overlay" class="hidden fixed inset-0 bg-slate-900 bg-opacity-80 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-sm transition-opacity duration-200">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-200 text-center space-y-4">
+      <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 text-blue-600 animate-bounce">
+        <i class="fa-solid fa-spinner text-xl animate-spin"></i>
+      </div>
+      <div>
+        <h3 id="progress-title" class="text-sm font-bold text-slate-800">Memproses File...</h3>
+        <p id="progress-status" class="text-xs text-slate-500 mt-0.5">Membaca data spreadsheet...</p>
+      </div>
+      <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
+        <div id="progress-bar-fill" class="bg-blue-600 h-full rounded-full transition-all duration-150 ease-out" style="width: 0%"></div>
+      </div>
+      <div class="flex justify-between items-center text-[11px] font-mono text-slate-500 pt-1">
+        <span id="progress-step-text">Langkah 1/3</span>
+        <span id="progress-percent" class="font-bold text-blue-600">0%</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================== 1. MODAL LOGIN ==================== -->
+  <div id="login-screen" class="fixed inset-0 bg-slate-900 bg-opacity-80 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+      <div class="text-center mb-6">
+        <div class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-blue-100 text-blue-600 mb-2">
+          <i class="fa-solid fa-file-excel text-2xl"></i>
+        </div>
+        <h2 class="text-xl font-bold text-slate-800">Spreadsheet Viewer Pro</h2>
+        <p class="text-xs text-slate-500 mt-1">Pilih peran untuk mengakses dokumen</p>
+      </div>
+
+      <div class="flex border-b border-slate-200 mb-5">
+        <button id="tab-visitor" type="button" onclick="switchRole('visitor')" class="flex-1 pb-2.5 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600 transition">
+          <i class="fa-solid fa-user text-xs mr-1.5"></i>Pengunjung
+        </button>
+        <button id="tab-admin" type="button" onclick="switchRole('admin')" class="flex-1 pb-2.5 text-center text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-600 transition">
+          <i class="fa-solid fa-user-shield text-xs mr-1.5"></i>Admin
+        </button>
+      </div>
+
+      <div id="login-error" class="hidden mb-4 p-2.5 bg-red-50 border-l-4 border-red-500 text-red-700 text-xs rounded"></div>
+
+      <form id="form-visitor" onsubmit="handleLogin(event, 'visitor')" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Password Pengunjung</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+              <i class="fa-solid fa-lock text-xs"></i>
+            </span>
+            <input type="password" id="visitor-password" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Masukkan password (visit123)">
+          </div>
+        </div>
+        <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm shadow-md transition flex items-center justify-center cursor-pointer">
+          <i class="fa-solid fa-right-to-bracket mr-2"></i>Masuk sebagai Pengunjung
+        </button>
+      </form>
+
+      <form id="form-admin" onsubmit="handleLogin(event, 'admin')" class="space-y-4 hidden">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Username Admin</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+              <i class="fa-solid fa-user text-xs"></i>
+            </span>
+            <input type="text" id="admin-username" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="admin">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Password Admin</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+              <i class="fa-solid fa-key text-xs"></i>
+            </span>
+            <input type="password" id="admin-password" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="admin123">
+          </div>
+        </div>
+        <button type="submit" class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg text-sm shadow-md transition flex items-center justify-center cursor-pointer">
+          <i class="fa-solid fa-user-gear mr-2"></i>Masuk sebagai Admin
+        </button>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ==================== 2. MAIN APP DASHBOARD ==================== -->
+  <div id="main-dashboard" class="hidden h-screen w-screen flex flex-col overflow-hidden">
+    
+    <!-- Header Control Bar -->
+    <header class="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between gap-2 shrink-0 z-20 shadow-sm flex-wrap lg:flex-nowrap">
+      
+      <!-- Sisi Kiri: Selector & Dynamic Search -->
+      <div class="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+        
+        <div class="p-1.5 bg-blue-600 text-white rounded flex-shrink-0" title="Spreadsheet Viewer">
+          <i class="fa-solid fa-table-cells text-sm"></i>
+        </div>
+
+        <!-- Tombol Unggah / Tambah Upload File (Hanya Admin) -->
+        <label id="container-upload" for="input-files" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold cursor-pointer transition flex-shrink-0">
+          <i class="fa-solid fa-cloud-arrow-up text-blue-600"></i>
+          <span id="upload-label-text">Unggah File</span>
+          <input id="input-files" type="file" accept=".xlsx, .xls, .csv" multiple onchange="handleMultipleFilesUpload(event)" class="hidden" />
+        </label>
+
+        <!-- Tombol Reset Seluruh File (Hanya Admin) -->
+        <button id="btn-reset-all" onclick="handleResetAllFiles()" disabled title="Reset / Hapus seluruh file yang diunggah" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold cursor-pointer transition flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
+          <i class="fa-solid fa-trash-can text-red-600"></i>
+          <span>Reset File</span>
+        </button>
+
+        <!-- Dropdown File -->
+        <div class="w-[170px]">
+          <select id="select-file" onchange="onFileChange()" disabled class="w-full bg-slate-50 border border-slate-300 rounded-lg py-1.5 px-2 text-xs font-medium focus:ring-2 focus:ring-blue-500 disabled:opacity-50 truncate outline-none">
+            <option value="">-- Pilih File --</option>
+          </select>
+        </div>
+
+        <!-- Dropdown Sheet -->
+        <div class="w-[140px]">
+          <select id="select-sheet" onchange="onSheetChange()" disabled class="w-full bg-slate-50 border border-slate-300 rounded-lg py-1.5 px-2 text-xs font-medium focus:ring-2 focus:ring-blue-500 disabled:opacity-50 truncate outline-none">
+            <option value="">-- Pilih Sheet --</option>
+          </select>
+        </div>
+
+        <!-- Dropdown Chunk Size (Kelipatan) -->
+        <div class="w-[125px]">
+          <select id="select-chunk-limit" onchange="onChunkLimitChange()" disabled class="w-full bg-slate-50 border border-slate-300 rounded-lg py-1.5 px-2 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 disabled:opacity-50 outline-none">
+            <option value="1000">1.000 / Hal</option>
+            <option value="2000">2.000 / Hal</option>
+            <option value="5000">5.000 / Hal</option>
+            <option value="10000">10.000 / Hal</option>
+          </select>
+        </div>
+
+        <!-- Dropdown Range Halaman -->
+        <div class="w-[160px]">
+          <select id="select-chunk" onchange="onChunkChange()" disabled class="w-full bg-amber-50 border border-amber-300 text-amber-900 rounded-lg py-1.5 px-2 text-xs font-semibold focus:ring-2 focus:ring-amber-500 disabled:opacity-50 truncate outline-none">
+            <option value="0">-- Pilih Rentang --</option>
+          </select>
+        </div>
+
+        <!-- Input Pencarian Data -->
+        <div class="relative w-[180px]">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
+            <i class="fa-solid fa-magnifying-glass text-xs"></i>
+          </span>
+          <input type="text" id="search-input" oninput="handleSearchInput()" disabled placeholder="Cari data..." class="w-full pl-8 pr-2 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 disabled:opacity-50 outline-none">
+        </div>
+      </div>
+
+      <!-- Sisi Kanan: Action Export & Tools -->
+      <div class="flex items-center gap-1.5 flex-shrink-0">
+        
+        <!-- Save JSON (Hanya tampil untuk Admin) -->
+        <button id="btn-json" onclick="exportToJSON()" disabled title="Simpan seluruh file sebagai file JSON" class="hidden px-2.5 py-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-xs font-semibold transition flex items-center gap-1 cursor-pointer disabled:opacity-50">
+          <i class="fa-solid fa-file-code text-xs"></i>
+          <span class="hidden xl:inline">Save JSON</span>
+        </button>
+
+        <!-- Open JSON (Pengunjung & Admin) -->
+        <label for="input-json-file" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold cursor-pointer transition flex-shrink-0" title="Buka seluruh data dari file .json">
+          <i class="fa-solid fa-folder-open text-amber-600"></i>
+          <span>Open JSON</span>
+          <input id="input-json-file" type="file" accept=".json" onchange="handleJSONFileUpload(event)" class="hidden" />
+        </label>
+
+        <!-- Save Excel (.xlsx) -->
+        <button id="btn-excel" onclick="exportToExcel()" disabled title="Simpan sebagai file Excel" class="px-2.5 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-lg text-xs font-semibold transition flex items-center gap-1 cursor-pointer disabled:opacity-50">
+          <i class="fa-solid fa-file-excel text-xs"></i>
+          <span class="hidden xl:inline">Save Excel</span>
+        </button>
+
+        <!-- Print PDF -->
+        <button id="btn-pdf" onclick="triggerPrintPDF()" disabled title="Cetak / Simpan PDF" class="px-2.5 py-1.5 text-red-700 bg-red-50 hover:bg-red-100 border border-red-300 rounded-lg text-xs font-semibold transition flex items-center gap-1 cursor-pointer disabled:opacity-50">
+          <i class="fa-solid fa-file-pdf text-xs"></i>
+          <span class="hidden xl:inline">Print PDF</span>
+        </button>
+
+        <!-- Badge Role -->
+        <div id="user-badge" class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 flex items-center gap-1">
+          <i id="user-badge-icon" class="fa-solid fa-user text-xs"></i>
+          <span id="user-role-text">Pengunjung</span>
+        </div>
+
+        <!-- Setting Admin -->
+        <button id="btn-manage-passwords" onclick="openPasswordModal()" class="hidden p-1.5 text-slate-500 hover:text-slate-800 transition cursor-pointer" title="Kelola Password">
+          <i class="fa-solid fa-gear text-sm"></i>
+        </button>
+
+        <!-- Logout -->
+        <button onclick="handleLogout()" class="p-1.5 text-red-500 hover:text-red-700 transition cursor-pointer" title="Keluar">
+          <i class="fa-solid fa-right-from-bracket text-sm"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Content Area: Table Viewport -->
+    <main class="flex-1 w-full bg-slate-200 overflow-hidden relative flex flex-col p-2">
+      <div id="viewport-container" class="w-full h-full bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden flex flex-col relative">
+        
+        <!-- Empty Placeholder -->
+        <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-slate-400 z-10 bg-white">
+          <i class="fa-solid fa-file-excel text-6xl mb-3 text-slate-300"></i>
+          <p class="text-base font-semibold text-slate-600">Belum ada data spreadsheet yang dimuat</p>
+          <p class="text-xs text-slate-400 mt-1">Unggah file Excel/CSV atau Open JSON melalui tombol di atas.</p>
+        </div>
+
+        <!-- Table Container (OVERFLOW-X-HIDDEN MENCEGAH SCROLL SAMPING) -->
+        <div id="table-scroll-wrapper" class="w-full h-full overflow-y-auto overflow-x-hidden flex flex-col relative">
+          
+          <!-- Banner Header Judul Dokumen Utama -->
+          <div id="document-header-banner" class="hidden p-4 bg-slate-50 border-b border-slate-300 text-center space-y-1"></div>
+
+          <table id="data-table" class="hidden locked-table select-none no-select">
+            <colgroup id="table-colgroup"></colgroup>
+            <thead id="table-head" class="bg-cyan-400 text-slate-900 font-bold uppercase border-b-2 border-slate-400 sticky top-0 z-10 shadow-sm"></thead>
+            <tbody id="table-body" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+
+  <!-- ==================== 3. MODAL ADMIN ==================== -->
+  <div id="modal-password" class="hidden fixed inset-0 bg-slate-900 bg-opacity-60 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 border border-slate-200">
+      <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
+        <h3 class="font-bold text-slate-800 text-sm flex items-center">
+          <i class="fa-solid fa-user-gear text-purple-600 mr-2"></i> Pengaturan Kredensial
+        </h3>
+        <button onclick="closePasswordModal()" class="text-slate-400 hover:text-slate-600 cursor-pointer">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div id="modal-pass-alert" class="hidden mb-3 p-2 bg-green-100 border-l-4 border-green-500 text-green-700 text-xs rounded">
+        Perubahan berhasil disimpan!
+      </div>
+
+      <form onsubmit="handleUpdatePassword(event)" class="space-y-3">
+        <div class="p-2.5 bg-slate-50 rounded border border-slate-200 space-y-1.5">
+          <label class="block text-[11px] font-bold text-slate-700 uppercase">Password Pengunjung</label>
+          <input type="password" id="new-visitor-pass" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Password Baru">
+        </div>
+
+        <div class="p-2.5 bg-slate-50 rounded border border-slate-200 space-y-1.5">
+          <label class="block text-[11px] font-bold text-slate-700 uppercase">Kredensial Admin</label>
+          <input type="text" id="new-admin-user" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Username Admin Baru">
+          <input type="password" id="new-admin-pass" class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Password Admin Baru">
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-1">
+          <button type="button" onclick="closePasswordModal()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded cursor-pointer">Batal</button>
+          <button type="submit" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded shadow cursor-pointer">Simpan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ==================== 4. APPLICATION LOGIC ==================== -->
+  <script>
+    let uploadedFiles = [];
+    let activeFileIndex = -1;
+    let activeSheetName = "";
+    let activeSheetRawData = [];
+    let activeSheetTitleHeaders = [];
+    let filteredSheetData = [];
+    let currentChunkIndex = 0;
+    let chunkSize = 1000;
+    let currentRole = "visitor";
+
+    let credentials = {
+      visitorPass: "visit123",
+      adminUser: "admin",
+      adminPass: "admin123"
+    };
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedCreds = localStorage.getItem('spv_credentials');
+      if (savedCreds) {
+        try { credentials = JSON.parse(savedCreds); } catch(e){}
+      }
+
+      const savedRole = localStorage.getItem('spv_active_role');
+      if (savedRole) {
+        setupDashboard(savedRole);
+        loadStoredData();
+      }
+    });
+
+    function saveStoredData() {
+      try {
+        let masterData = { files: [] };
+        uploadedFiles.forEach(fileObj => {
+          let fileEntry = { name: fileObj.name, sheets: {} };
+          fileObj.workbook.SheetNames.forEach(sheetName => {
+            const worksheet = fileObj.workbook.Sheets[sheetName];
+            const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+            fileEntry.sheets[sheetName] = rawData;
+          });
+          masterData.files.push(fileEntry);
+        });
+        localStorage.setItem('spv_master_data', JSON.stringify(masterData));
+      } catch (e) {
+        console.warn("Gagal menyimpan data ke penyimpanan lokal:", e);
+      }
+    }
+
+    function loadStoredData() {
+      const stored = localStorage.getItem('spv_master_data');
+      if (!stored) return;
+
+      try {
+        const jsonData = JSON.parse(stored);
+        if (jsonData && Array.isArray(jsonData.files) && jsonData.files.length > 0) {
+          uploadedFiles = [];
+          jsonData.files.forEach(fileEntry => {
+            const workbook = XLSX.utils.book_new();
+            for (const sheetName in fileEntry.sheets) {
+              const aoaData = fileEntry.sheets[sheetName];
+              const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
+              XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+            }
+            uploadedFiles.push({ name: fileEntry.name, workbook: workbook });
+          });
+          updateFileDropdown();
+        }
+      } catch (e) {
+        console.error("Gagal memuat data tersimpan:", e);
+      }
+    }
+
+    function showProgress(title, status, percent, stepText) {
+      const overlay = document.getElementById('loading-overlay');
+      const elTitle = document.getElementById('progress-title');
+      const elStatus = document.getElementById('progress-status');
+      const elFill = document.getElementById('progress-bar-fill');
+      const elPercent = document.getElementById('progress-percent');
+      const elStep = document.getElementById('progress-step-text');
+
+      if (title) elTitle.innerText = title;
+      if (status) elStatus.innerText = status;
+      if (stepText) elStep.innerText = stepText;
+      
+      const clampedPercent = Math.min(Math.max(percent, 0), 100);
+      elFill.style.width = clampedPercent + '%';
+      elPercent.innerText = Math.round(clampedPercent) + '%';
+
+      overlay.classList.remove('hidden');
+    }
+
+    function hideProgress() {
+      setTimeout(() => {
+        document.getElementById('loading-overlay').classList.add('hidden');
+      }, 200);
+    }
+
+    function switchRole(role) {
+      const tabVisitor = document.getElementById('tab-visitor');
+      const tabAdmin = document.getElementById('tab-admin');
+      const formVisitor = document.getElementById('form-visitor');
+      const formAdmin = document.getElementById('form-admin');
+      document.getElementById('login-error').classList.add('hidden');
+
+      if (role === 'visitor') {
+        tabVisitor.className = "flex-1 pb-2.5 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600 transition";
+        tabAdmin.className = "flex-1 pb-2.5 text-center text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-600 transition";
+        formVisitor.classList.remove('hidden');
+        formAdmin.classList.add('hidden');
+      } else {
+        tabAdmin.className = "flex-1 pb-2.5 text-center text-sm font-semibold border-b-2 border-purple-600 text-purple-600 transition";
+        tabVisitor.className = "flex-1 pb-2.5 text-center text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-600 transition";
+        formAdmin.classList.remove('hidden');
+        formVisitor.classList.add('hidden');
+      }
+    }
+
+    function handleLogin(event, role) {
+      event.preventDefault();
+      const errDiv = document.getElementById('login-error');
+      errDiv.classList.add('hidden');
+
+      if (role === 'admin') {
+        const u = document.getElementById('admin-username').value.trim();
+        const p = document.getElementById('admin-password').value.trim();
+        if (u !== credentials.adminUser || p !== credentials.adminPass) {
+          errDiv.innerText = "Username atau Password admin salah!";
+          errDiv.classList.remove('hidden');
+          return;
+        }
+      } else if (role === 'visitor') {
+        const p = document.getElementById('visitor-password').value.trim();
+        if (p !== credentials.visitorPass) {
+          errDiv.innerText = "Password pengunjung salah!";
+          errDiv.classList.remove('hidden');
+          return;
+        }
+      }
+
+      localStorage.setItem('spv_active_role', role);
+      setupDashboard(role);
+      loadStoredData();
+    }
+
+    function setupDashboard(role) {
+      currentRole = role;
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('main-dashboard').classList.remove('hidden');
+
+      const badge = document.getElementById('user-badge');
+      const badgeText = document.getElementById('user-role-text');
+      const badgeIcon = document.getElementById('user-badge-icon');
+      const btnManagePass = document.getElementById('btn-manage-passwords');
+      const containerUpload = document.getElementById('container-upload');
+      const btnResetAll = document.getElementById('btn-reset-all');
+      const btnJson = document.getElementById('btn-json');
+
+      if (role === 'admin') {
+        badgeText.innerText = "Admin";
+        badge.className = "px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 flex items-center gap-1";
+        badgeIcon.className = "fa-solid fa-user-shield text-xs";
+        btnManagePass.classList.remove('hidden');
+        containerUpload.classList.remove('hidden');
+        btnResetAll.classList.remove('hidden');
+        btnJson.classList.remove('hidden');
+      } else {
+        badgeText.innerText = "Pengunjung";
+        badge.className = "px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 flex items-center gap-1";
+        badgeIcon.className = "fa-solid fa-user text-xs";
+        btnManagePass.classList.add('hidden');
+        containerUpload.classList.add('hidden');
+        btnResetAll.classList.add('hidden');
+        btnJson.classList.add('hidden');
+      }
+    }
+
+    function handleJSONFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      showProgress("Membaca File JSON Master...", file.name, 20, "Tahap 1/3");
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          showProgress("Parsing JSON...", "Menganalisis seluruh struktur file & sheet", 50, "Tahap 2/3");
+          const jsonData = JSON.parse(e.target.result);
+
+          if (!jsonData || !Array.isArray(jsonData.files) || jsonData.files.length === 0) {
+            alert("Format file JSON master tidak valid atau kosong.");
+            hideProgress();
+            return;
+          }
+
+          uploadedFiles = [];
+
+          jsonData.files.forEach(fileEntry => {
+            const workbook = XLSX.utils.book_new();
+            for (const sheetName in fileEntry.sheets) {
+              const aoaData = fileEntry.sheets[sheetName];
+              const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
+              XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+            }
+            uploadedFiles.push({ name: fileEntry.name, workbook: workbook });
+          });
+
+          saveStoredData();
+
+          showProgress("Menyiapkan Tampilan...", "Selesai memuat seluruh dokumen", 100, "Tahap 3/3");
+          setTimeout(() => {
+            updateFileDropdown();
+            hideProgress();
+          }, 300);
+
+        } catch (err) {
+          alert("Gagal membaca file JSON: " + err.message);
+          hideProgress();
+        }
+      };
+
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    function handleMultipleFilesUpload(event) {
+      const files = Array.from(event.target.files);
+      if (!files || files.length === 0) return;
+
+      showProgress("Mengunggah File...", `Membaca 0 dari ${files.length} file`, 5, "Tahap 1/3");
+
+      let loadedCount = 0;
+
+      files.forEach((file) => {
+        const reader = new FileReader();
+
+        reader.onload = function(e) {
+          setTimeout(() => {
+            try {
+              showProgress("Parsing Spreadsheet...", `Menganalisis ${file.name}`, 55 + (loadedCount / files.length) * 35, "Tahap 2/3");
+              const data = new Uint8Array(e.target.result);
+              const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
+              uploadedFiles.push({ name: file.name, workbook: workbook });
+            } catch (err) {
+              console.error("Gagal membaca file: " + file.name, err);
+            }
+
+            loadedCount++;
+            if (loadedCount === files.length) {
+              saveStoredData();
+              showProgress("Menyiapkan Tampilan...", "Selesai memuat dokumen", 100, "Tahap 3/3");
+              setTimeout(() => {
+                updateFileDropdown();
+                hideProgress();
+              }, 300);
+            }
+          }, 50);
+        };
+
+        reader.readAsArrayBuffer(file);
+      });
+      event.target.value = '';
+    }
+
+    function updateFileDropdown() {
+      const selectFile = document.getElementById('select-file');
+      selectFile.innerHTML = '<option value="">-- Pilih File --</option>';
+
+      uploadedFiles.forEach((fileObj, idx) => {
+        let opt = document.createElement('option');
+        opt.value = idx;
+        const sheetCount = fileObj.workbook.SheetNames.length;
+        opt.innerText = `${idx + 1}. ${fileObj.name} (${sheetCount} Sheet)`;
+        selectFile.appendChild(opt);
+      });
+
+      selectFile.disabled = false;
+      document.getElementById('btn-reset-all').disabled = false;
+      
+      if (uploadedFiles.length > 0) {
+        document.getElementById('upload-label-text').innerText = "Tambah Upload";
+      }
+
+      if (uploadedFiles.length > 0) {
+        activeFileIndex = uploadedFiles.length - 1;
+        selectFile.value = activeFileIndex;
+        onFileChange();
+      }
+    }
+
+    function handleResetAllFiles() {
+      if (confirm("Apakah Anda yakin ingin menghapus seluruh file yang diunggah dan mereset data?")) {
+        uploadedFiles = [];
+        activeFileIndex = -1;
+        activeSheetName = "";
+        activeSheetRawData = [];
+        activeSheetTitleHeaders = [];
+        filteredSheetData = [];
+        currentChunkIndex = 0;
+
+        localStorage.removeItem('spv_master_data');
+
+        const selectFile = document.getElementById('select-file');
+        selectFile.innerHTML = '<option value="">-- Pilih File --</option>';
+        selectFile.disabled = true;
+
+        const selectSheet = document.getElementById('select-sheet');
+        selectSheet.innerHTML = '<option value="">-- Pilih Sheet --</option>';
+        selectSheet.disabled = true;
+
+        document.getElementById('select-chunk-limit').disabled = true;
+        
+        const selectChunk = document.getElementById('select-chunk');
+        selectChunk.innerHTML = '<option value="0">-- Pilih Rentang --</option>';
+        selectChunk.disabled = true;
+
+        const searchInput = document.getElementById('search-input');
+        searchInput.value = '';
+        searchInput.disabled = true;
+
+        document.getElementById('btn-reset-all').disabled = true;
+        document.getElementById('btn-json').disabled = true;
+        document.getElementById('btn-excel').disabled = true;
+        document.getElementById('btn-pdf').disabled = true;
+
+        document.getElementById('upload-label-text').innerText = "Unggah File";
+
+        resetTableToEmpty();
+      }
+    }
+
+    function onFileChange() {
+      const selectFile = document.getElementById('select-file');
+      const selectSheet = document.getElementById('select-sheet');
+      activeFileIndex = parseInt(selectFile.value);
+
+      if (isNaN(activeFileIndex) || !uploadedFiles[activeFileIndex]) {
+        selectSheet.innerHTML = '<option value="">-- Pilih Sheet --</option>';
+        selectSheet.disabled = true;
+        document.getElementById('select-chunk-limit').disabled = true;
+        document.getElementById('search-input').disabled = true;
+        document.getElementById('btn-json').disabled = true;
+        document.getElementById('btn-excel').disabled = true;
+        document.getElementById('btn-pdf').disabled = true;
+        resetTableToEmpty();
+        return;
+      }
+
+      const activeWB = uploadedFiles[activeFileIndex].workbook;
+      selectSheet.innerHTML = '<option value="">-- Pilih Sheet --</option>';
+
+      activeWB.SheetNames.forEach((sheetName, idx) => {
+        let opt = document.createElement('option');
+        opt.value = sheetName;
+        opt.innerText = `Tab ${idx + 1}: ${sheetName}`;
+        selectSheet.appendChild(opt);
+      });
+
+      selectSheet.disabled = false;
+      document.getElementById('select-chunk-limit').disabled = false;
+
+      if (activeWB.SheetNames.length > 0) {
+        activeSheetName = activeWB.SheetNames[0];
+        selectSheet.value = activeSheetName;
+        onSheetChange();
+      }
+    }
+
+    function onSheetChange() {
+      const selectSheet = document.getElementById('select-sheet');
+      activeSheetName = selectSheet.value;
+
+      if (!activeSheetName || activeFileIndex < 0) return;
+
+      showProgress("Memuat Sheet...", `Memproses tab "${activeSheetName}"`, 20, "Memproses Data");
+
+      setTimeout(() => {
+        const activeWB = uploadedFiles[activeFileIndex].workbook;
+        const worksheet = activeWB.Sheets[activeSheetName];
+
+        if (worksheet && worksheet['!ref']) {
+          let range = XLSX.utils.decode_range(worksheet['!ref']);
+          range.s.r = 0; range.s.c = 0;
+          worksheet['!ref'] = XLSX.utils.encode_range(range);
+        }
+
+        showProgress("Mengolah Baris...", "Mengkonversi format sel ke tabel", 60, "Memproses Data");
+
+        let rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+        
+        const cleanedObj = cleanRawSheetDataWithTitles(rawData);
+        activeSheetTitleHeaders = cleanedObj.titles;
+        activeSheetRawData = cleanedObj.tableData;
+
+        renderDocumentBanner();
+
+        if (!activeSheetRawData || activeSheetRawData.length === 0) {
+          hideProgress();
+          resetTableToEmpty("Sheet ini kosong atau tidak berisi data yang dapat dibaca");
+          return;
+        }
+
+        document.getElementById('search-input').value = '';
+        document.getElementById('search-input').disabled = false;
+        
+        if (currentRole === 'admin') {
+          document.getElementById('btn-json').disabled = false;
+        }
+        document.getElementById('btn-excel').disabled = false;
+        document.getElementById('btn-pdf').disabled = false;
+        filteredSheetData = [...activeSheetRawData];
+
+        showProgress("Merender Viewport...", "Menyusun tampilan tabel", 90, "Hampir Selesai");
+
+        setupChunkDropdown();
+        setTimeout(hideProgress, 250);
+      }, 50);
+    }
+
+    function cleanRawSheetDataWithTitles(rawData) {
+      if (!rawData || rawData.length === 0) return { titles: [], tableData: [] };
+
+      let tableHeaderRowIndex = -1;
+
+      for (let r = 0; r < rawData.length; r++) {
+        const row = rawData[r];
+        if (row && Array.isArray(row)) {
+          const rowText = row.join(' ').toLowerCase();
+          if (
+            (rowText.includes('no') || rowText.includes('uraian') || rowText.includes('nomor') || rowText.includes('kode')) &&
+            row.filter(c => c !== undefined && c !== null && String(c).trim() !== '').length >= 3
+          ) {
+            tableHeaderRowIndex = r;
+            break;
+          }
+        }
+      }
+
+      if (tableHeaderRowIndex === -1) {
+        for (let r = 0; r < rawData.length; r++) {
+          const row = rawData[r];
+          if (row && row.some(cell => cell !== undefined && cell !== null && String(cell).trim() !== '')) {
+            tableHeaderRowIndex = r;
+            break;
+          }
+        }
+      }
+
+      if (tableHeaderRowIndex === -1) return { titles: [], tableData: [] };
+
+      const titles = [];
+      for (let r = 0; r < tableHeaderRowIndex; r++) {
+        const row = rawData[r];
+        if (row) {
+          const texts = row.map(c => c !== undefined && c !== null ? String(c).trim() : '').filter(t => t !== '');
+          if (texts.length > 0) {
+            titles.push(texts.join(' '));
+          }
+        }
+      }
+
+      const slicedData = rawData.slice(tableHeaderRowIndex);
+      if (slicedData.length === 0) return { titles: titles, tableData: [] };
+
+      const rawHeader = slicedData[0] || [];
+
+      const validColIndices = [];
+      for (let colIdx = 0; colIdx < rawHeader.length; colIdx++) {
+        const headerText = rawHeader[colIdx] !== undefined && rawHeader[colIdx] !== null ? String(rawHeader[colIdx]).trim() : '';
+        
+        let hasDataInBody = false;
+        for (let rowIdx = 1; rowIdx < slicedData.length; rowIdx++) {
+          const cellVal = slicedData[rowIdx][colIdx];
+          if (cellVal !== undefined && cellVal !== null && String(cellVal).trim() !== '') {
+            hasDataInBody = true;
+            break;
+          }
+        }
+
+        if (headerText !== '' || hasDataInBody) {
+          validColIndices.push(colIdx);
+        }
+      }
+
+      let cleanedRows = slicedData.map(row => {
+        return validColIndices.map(colIdx => row[colIdx] !== undefined ? row[colIdx] : '');
+      });
+
+      let headerRow = cleanedRows[0] || [];
+      let sanitizedHeader = [];
+      for (let i = 0; i < headerRow.length; i++) {
+        let val = headerRow[i];
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          sanitizedHeader.push(String(val).trim());
+        } else {
+          sanitizedHeader.push(`Kolom ${String.fromCharCode(65 + (i % 26))}`);
+        }
+      }
+
+      cleanedRows[0] = sanitizedHeader;
+
+      return { titles: titles, tableData: cleanedRows };
+    }
+
+    function renderDocumentBanner() {
+      const banner = document.getElementById('document-header-banner');
+      banner.innerHTML = '';
+
+      if (activeSheetTitleHeaders && activeSheetTitleHeaders.length > 0) {
+        activeSheetTitleHeaders.forEach((titleText, idx) => {
+          let p = document.createElement('div');
+          if (idx === 0) {
+            p.className = "text-base font-extrabold text-slate-800 uppercase tracking-wide";
+          } else if (idx === 1) {
+            p.className = "text-sm font-bold text-slate-700 uppercase";
+          } else {
+            p.className = "text-xs font-semibold text-blue-700 text-left pt-1 border-t border-slate-200 mt-1";
+          }
+          p.innerText = titleText;
+          banner.appendChild(p);
+        });
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
+    function handleSearchInput() {
+      const keyword = document.getElementById('search-input').value.trim().toLowerCase();
+      
+      if (!activeSheetRawData || activeSheetRawData.length === 0) return;
+
+      if (!keyword) {
+        filteredSheetData = [...activeSheetRawData];
+      } else {
+        const headerRow = activeSheetRawData[0];
+        const bodyRows = activeSheetRawData.slice(1);
+
+        const matchedRows = [];
+        const otherRows = [];
+
+        bodyRows.forEach(row => {
+          const isMatch = row.some(cell => {
+            if (cell === undefined || cell === null) return false;
+            return String(cell).toLowerCase().includes(keyword);
+          });
+
+          if (isMatch) {
+            matchedRows.push(row);
+          } else {
+            otherRows.push(row);
+          }
+        });
+
+        filteredSheetData = [headerRow, ...matchedRows, ...otherRows];
+      }
+
+      setupChunkDropdown();
+    }
+
+    function onChunkLimitChange() {
+      const selectLimit = document.getElementById('select-chunk-limit');
+      chunkSize = parseInt(selectLimit.value) || 1000;
+      setupChunkDropdown();
+    }
+
+    function setupChunkDropdown() {
+      const selectChunk = document.getElementById('select-chunk');
+      selectChunk.innerHTML = '';
+
+      const totalRows = filteredSheetData.length - 1;
+      if (totalRows <= 0) {
+        renderCurrentChunk();
+        selectChunk.disabled = true;
+        return;
+      }
+
+      const totalChunks = Math.ceil(totalRows / chunkSize);
+
+      for (let i = 0; i < totalChunks; i++) {
+        const startRow = (i * chunkSize) + 1;
+        const endRow = Math.min((i + 1) * chunkSize, totalRows);
+        let opt = document.createElement('option');
+        opt.value = i;
+        opt.innerText = `Baris ${startRow.toLocaleString('id-ID')} - ${endRow.toLocaleString('id-ID')}`;
+        selectChunk.appendChild(opt);
+      }
+
+      selectChunk.disabled = false;
+      currentChunkIndex = 0;
+      selectChunk.value = 0;
+
+      renderCurrentChunk();
+    }
+
+    function onChunkChange() {
+      const selectChunk = document.getElementById('select-chunk');
+      currentChunkIndex = parseInt(selectChunk.value) || 0;
+      renderCurrentChunk();
+    }
+
+    // DETEKSI KOLOM URAIAN INFORMASI ARSIP (FLEKSIBEL UTAMA DENGAN RUANG PALING LUAS)
+    function isUraianInformasiColumn(columnName) {
+      if (!columnName) return false;
+      const name = String(columnName).toLowerCase().replace(/\s+/g, '');
+      return name.includes('uraian') && name.includes('informasi');
+    }
+
+    // FORMAT HEADER DENGAN HTML <br> SUPAYA PEMENGGALAN BARIS PER KATA BEKERJA
+    function formatHeaderHTML(colName) {
+      if (!colName) return '';
+      let str = String(colName).trim();
+      
+      // Kasus khusus NO ARSIP/BERKAS dipisah 3 baris
+      if (str.toUpperCase().includes('NO ARSIP') || str.toUpperCase().includes('ARSIP/BERKAS')) {
+        return "NO<br>ARSIP/<br>BERKAS";
+      }
+
+      // Pemenggalan per kata murni
+      let words = str.split(/\s+/);
+      return words.join('<br>');
+    }
+
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function renderCurrentChunk() {
+      if (!filteredSheetData || filteredSheetData.length === 0) return;
+
+      const headerRow = filteredSheetData[0] || [];
+      const startIdx = (currentChunkIndex * chunkSize) + 1;
+      const endIdx = Math.min(startIdx + chunkSize, filteredSheetData.length);
+      const chunkRows = filteredSheetData.slice(startIdx, endIdx);
+
+      const table = document.getElementById('data-table');
+      const colgroup = document.getElementById('table-colgroup');
+      const thead = document.getElementById('table-head');
+      const tbody = document.getElementById('table-body');
+      const emptyState = document.getElementById('empty-state');
+      const searchKeyword = document.getElementById('search-input').value.trim();
+
+      emptyState.classList.add('hidden');
+      colgroup.innerHTML = '';
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+
+      // Tentukan lebar kolom yang presisi tanpa mengacak kata/persentase sempit
+      headerRow.forEach((col) => {
+        let colEl = document.createElement('col');
+        let colName = (col !== undefined ? String(col) : '').trim();
+
+        if (isUraianInformasiColumn(colName)) {
+          colEl.style.width = "auto"; // Mengambil porsi ruang terbesar
+        } else {
+          colEl.style.width = "1%"; // Otomatis menyesuaikan secara ringkas berdasarkan isi teks terpanjang
+        }
+
+        colgroup.appendChild(colEl);
+      });
+
+      let trHead = document.createElement('tr');
+      headerRow.forEach((col) => {
+        let th = document.createElement('th');
+        let colName = (col !== undefined ? String(col) : '').trim();
+        
+        if (isUraianInformasiColumn(colName)) {
+          // URAIAN INFORMASI ARSIP: Header MENDATAR NORMAL (TIDAK DIPENGGAL)
+          th.className = "col-flexible-main px-3 py-2.5 border border-slate-300 font-bold text-slate-800 text-xs text-center align-middle";
+          th.innerText = colName;
+        } else {
+          // KOLOM STANDAR LAINNYA (TERMASUK JENIS ARSIP): Header DIPENGGAL PER KATA
+          th.className = "col-fixed-header px-2 py-2 border border-slate-300 font-bold text-slate-800 text-xs text-center align-middle";
+          th.innerHTML = formatHeaderHTML(colName);
+        }
+
+        trHead.appendChild(th);
+      });
+      thead.appendChild(trHead);
+
+      chunkRows.forEach(row => {
+        let trBody = document.createElement('tr');
+        trBody.className = "hover:bg-blue-50/70 transition-colors";
+        
+        for (let c = 0; c < headerRow.length; c++) {
+          let cellVal = row[c] !== undefined ? String(row[c]) : '';
+          let headerName = (headerRow[c] !== undefined ? String(headerRow[c]) : '').trim();
+          let td = document.createElement('td');
+          
+          if (isUraianInformasiColumn(headerName)) {
+            td.className = "col-flexible-main px-3 py-2 border border-slate-200 font-sans text-slate-800 align-top text-xs text-left";
+          } else {
+            td.className = "col-fixed-body px-2 py-2 border border-slate-200 font-sans text-slate-800 align-top text-xs text-center";
+          }
+
+          if (searchKeyword !== '') {
+            const regex = new RegExp(`(${escapeRegExp(searchKeyword)})`, 'gi');
+            if (regex.test(cellVal)) {
+              td.innerHTML = cellVal.replace(regex, '<span class="search-highlight">$1</span>');
+            } else {
+              td.innerText = cellVal;
+            }
+          } else {
+            td.innerText = cellVal;
+          }
+
+          trBody.appendChild(td);
+        }
+        tbody.appendChild(trBody);
+      });
+
+      table.classList.remove('hidden');
+    }
+
+    function exportToJSON() {
+      if (!uploadedFiles || uploadedFiles.length === 0) {
+        alert("Tidak ada file yang dimuat untuk dieksport ke JSON!");
+        return;
+      }
+
+      showProgress("Menyusun Master JSON...", "Mengemas seluruh file & sheet", 50, "Export Data");
+
+      setTimeout(() => {
+        let masterData = { files: [] };
+
+        uploadedFiles.forEach(fileObj => {
+          let fileEntry = { name: fileObj.name, sheets: {} };
+          fileObj.workbook.SheetNames.forEach(sheetName => {
+            const worksheet = fileObj.workbook.Sheets[sheetName];
+            const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+            fileEntry.sheets[sheetName] = rawData;
+          });
+          masterData.files.push(fileEntry);
+        });
+
+        const jsonString = JSON.stringify(masterData, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "master_spreadsheet_data.json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showProgress("Selesai!", "File JSON master berhasil diunduh", 100, "Export Data");
+        setTimeout(hideProgress, 300);
+      }, 50);
+    }
+
+    function exportToExcel() {
+      if (!filteredSheetData || filteredSheetData.length === 0) {
+        alert("Tidak ada data untuk dieksport ke Excel!");
+        return;
+      }
+
+      showProgress("Membuat File Excel...", "Menyusun lembar kerja .xlsx", 50, "Export Excel");
+
+      setTimeout(() => {
+        const newWs = XLSX.utils.aoa_to_sheet(filteredSheetData);
+        const newWb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(newWb, newWs, activeSheetName || "Data");
+
+        const fileName = `${activeSheetName || 'spreadsheet_data'}_export.xlsx`;
+        XLSX.writeFile(newWb, fileName);
+
+        showProgress("Selesai!", "File Excel berhasil diunduh", 100, "Export Excel");
+        setTimeout(hideProgress, 300);
+      }, 50);
+    }
+
+    function triggerPrintPDF() {
+      if (!filteredSheetData || filteredSheetData.length === 0) {
+        alert("Tidak ada data untuk dicetak!");
+        return;
+      }
+      window.print();
+    }
+
+    function resetTableToEmpty(message) {
+      document.getElementById('data-table').classList.add('hidden');
+      document.getElementById('document-header-banner').classList.add('hidden');
+
+      const emptyState = document.getElementById('empty-state');
+      emptyState.classList.remove('hidden');
+      if (message) {
+        emptyState.querySelector('p').innerText = message;
+      } else {
+        emptyState.querySelector('p').innerText = "Belum ada data spreadsheet yang dimuat";
+      }
+      document.getElementById('search-input').disabled = true;
+      document.getElementById('btn-json').disabled = true;
+      document.getElementById('btn-excel').disabled = true;
+      document.getElementById('btn-pdf').disabled = true;
+
+      if (currentRole === 'visitor') {
+        document.getElementById('btn-json').classList.add('hidden');
+      }
+    }
+
+    function openPasswordModal() {
+      document.getElementById('modal-password').classList.remove('hidden');
+    }
+
+    function closePasswordModal() {
+      document.getElementById('modal-password').classList.add('hidden');
+      document.getElementById('modal-pass-alert').classList.add('hidden');
+    }
+
+    function handleUpdatePassword(event) {
+      event.preventDefault();
+      const v = document.getElementById('new-visitor-pass').value.trim();
+      const au = document.getElementById('new-admin-user').value.trim();
+      const ap = document.getElementById('new-admin-pass').value.trim();
+
+      if (v) credentials.visitorPass = v;
+      if (au) credentials.adminUser = au;
+      if (ap) credentials.adminPass = ap;
+
+      localStorage.setItem('spv_credentials', JSON.stringify(credentials));
+
+      const alertBox = document.getElementById('modal-pass-alert');
+      alertBox.classList.remove('hidden');
+      setTimeout(closePasswordModal, 1200);
+    }
+
+    function handleLogout() {
+      localStorage.removeItem('spv_active_role');
+      localStorage.removeItem('spv_master_data');
+
+      document.getElementById('main-dashboard').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+      uploadedFiles = [];
+      activeFileIndex = -1;
+      document.getElementById('select-file').innerHTML = '<option value="">-- Pilih File --</option>';
+      document.getElementById('select-file').disabled = true;
+      document.getElementById('select-sheet').innerHTML = '<option value="">-- Pilih Sheet --</option>';
+      document.getElementById('select-sheet').disabled = true;
+      document.getElementById('select-chunk-limit').disabled = true;
+      document.getElementById('select-chunk').innerHTML = '<option value="0">-- Pilih Rentang --</option>';
+      document.getElementById('select-chunk').disabled = true;
+      document.getElementById('upload-label-text').innerText = "Unggah File";
+      resetTableToEmpty();
+    }
+  </script>
+</body>
+</html>
